@@ -180,6 +180,12 @@ bld.SAMBA_PYTHON('python_dns',
 	realname='samba/dcerpc/dns.so'
 	)
 
+bld.SAMBA_PYTHON('python_spoolss',
+	source='../../librpc/gen_ndr/py_spoolss.c',
+	deps='RPC_NDR_SPOOLSS pytalloc-util pyrpc_util',
+	realname='samba/dcerpc/spoolss.so'
+	)
+
 bld.SAMBA_PYTHON('python_auth',
 	source='../../librpc/gen_ndr/py_auth.c',
 	deps='NDR_AUTH pytalloc-util pyrpc_util',
