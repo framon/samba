@@ -13,7 +13,7 @@ use Parse::Pidl qw(warning fatal error);
 use Parse::Pidl::Typelist qw(hasType resolveType getType mapTypeName expandAlias);
 use Parse::Pidl::Util qw(has_property ParseExpr unmake_str);
 use Parse::Pidl::NDR qw(GetPrevLevel GetNextLevel ContainsDeferred ContainsPipe is_charset_array);
-use Parse::Pidl::CUtil qw(get_value_of get_pointer_to);
+use Parse::Pidl::CUtil qw(get_value_of get_pointer_to get_array_element);
 use Parse::Pidl::Samba4 qw(ArrayDynamicallyAllocated);
 use Parse::Pidl::Samba4::Header qw(GenerateFunctionInEnv GenerateFunctionOutEnv EnvSubstituteValue GenerateStructEnv);
 
@@ -1292,7 +1292,8 @@ sub ConvertObjectToPythonLevel($$$$$$)
 			$self->indent;
 			my $member_var = "py_$e->{NAME}_$l->{LEVEL_INDEX}";
 			$self->pidl("PyObject *$member_var;");
-			$self->ConvertObjectToPythonLevel($var_name, $env, $e, $nl, $var_name."[$counter]", $member_var, $fail);
+			my $array_element_name = get_array_element($var_name, $counter);
+			$self->ConvertObjectToPythonLevel($var_name, $env, $e, $nl, $array_element_name, $member_var, $fail);
 			$self->pidl("PyList_SetItem($py_var, $counter, $member_var);");
 			$self->deindent;
 			$self->pidl("}");
