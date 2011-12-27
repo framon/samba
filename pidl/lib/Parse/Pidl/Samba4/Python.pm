@@ -1010,7 +1010,7 @@ sub ConvertObjectFromPythonData($$$$$$;$)
 	}
 
 	if ($actual_ctype->{TYPE} eq "SCALAR" and $actual_ctype->{NAME} eq "string_array") {
-		$self->pidl("$target = PyCObject_AsVoidPtr($cvar);");
+		$self->pidl("$target = PyList_AsStringArray($mem_ctx, $cvar);");
 		return;
 	}
 
@@ -1170,8 +1170,11 @@ sub ConvertScalarToPython($$$)
 		return "PyString_FromStringOrNULL($cvar)";
 	}
 
+	if ($ctypename eq "string_array") {
+		return "PyList_FromStringArray($cvar)";
+	}
+
 	# Not yet supported
-	if ($ctypename eq "string_array") { return "pytalloc_CObject_FromTallocPtr($cvar)"; }
 	if ($ctypename eq "ipv4address") { return "PyString_FromStringOrNULL($cvar)"; }
 	if ($ctypename eq "ipv6address") { return "PyString_FromStringOrNULL($cvar)"; }
 	if ($ctypename eq "dnsp_name") { return "PyString_FromStringOrNULL($cvar)"; }

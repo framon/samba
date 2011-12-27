@@ -55,4 +55,7 @@ PyObject *py_return_ndr_struct(const char *module_name, const char *type_name,
 
 PyObject *PyString_FromStringOrNULL(const char *str);
 
+PyObject *PyList_FromStringArray(const char **ptr);
+const char **PyList_AsStringArray(TALLOC_CTX *mem_ctx, PyObject *value);
+
 #endif /* __PYRPC_UTIL_H__ */

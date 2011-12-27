@@ -311,3 +311,42 @@ PyObject *PyString_FromStringOrNULL(const char *str)
 	}
 	return PyString_FromString(str);
 }
+
+PyObject *PyList_FromStringArray(const char **ptr)
+{
+	PyObject *list;
+
+	if (ptr == NULL) {
+		Py_RETURN_NONE;
+	}
+
+	list = PyList_New(0);
+
+	for (; *ptr; ptr++){
+		PyObject *str = PyString_FromString(*ptr);
+		PyList_Append(list, str);
+	}
+
+	return list;
+}
+
+const char **PyList_AsStringArray(TALLOC_CTX *mem_ctx, PyObject *value)
+{
+	const char **string;
+	int cntr;
+
+	string = NULL;
+	/*PY_CHECK_TYPE(&PyList_Type, value, return -1;);*/
+
+	string = talloc_array_ptrtype(mem_ctx, string, PyList_GET_SIZE(value) + 1);
+
+	for (cntr = 0; cntr < PyList_GET_SIZE(value); cntr++) {
+		PyObject *item = PyList_GET_ITEM(value, cntr);
+		/*PY_CHECK_TYPE(&PyString_Type, item, return -1;);*/
+		string[cntr] = talloc_strdup(mem_ctx, PyString_AS_STRING(item));
+	}
+	string[cntr] = '\0';
+
+	return string;
+}
+
