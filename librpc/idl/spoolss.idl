@@ -787,7 +787,7 @@ cpp_quote("#define spoolss_security_descriptor security_descriptor")
 		[relative] nstring *printprocessor;
 		[relative] nstring *datatype;
 		[relative] nstring *parameters;
-		[relative,subcontext(0),flag(NDR_ALIGN4)] spoolss_security_descriptor *secdesc;
+		[relative,subcontext(0),flag(NDR_ALIGN4)] security_descriptor *secdesc;
 		spoolss_PrinterAttributes attributes;
 		[range(0,99)] uint32 priority;
 		uint32 defaultpriority;
@@ -799,7 +799,7 @@ cpp_quote("#define spoolss_security_descriptor security_descriptor")
 	} spoolss_PrinterInfo2;
 
 	typedef [public,gensize] struct {
-		[relative,subcontext(0),flag(NDR_ALIGN4)] spoolss_security_descriptor *secdesc;
+		[relative,subcontext(0),flag(NDR_ALIGN4)] security_descriptor *secdesc;
 	} spoolss_PrinterInfo3;
 
 	typedef [public,gensize] struct {
@@ -930,7 +930,7 @@ cpp_quote("#define spoolss_security_descriptor security_descriptor")
 		[relative] nstring *driver_name;
 		[relative,subcontext(0),flag(NDR_ALIGN4)] spoolss_DeviceMode *devmode;
 		[relative] nstring *text_status;
-		[relative,subcontext(0),flag(NDR_ALIGN4)] spoolss_security_descriptor *secdesc;
+		[relative,subcontext(0),flag(NDR_ALIGN4)] security_descriptor *secdesc;
 		spoolss_JobStatus status;
 		[range(0,99)] uint32 priority;
 		uint32 position;
@@ -962,7 +962,7 @@ cpp_quote("#define spoolss_security_descriptor security_descriptor")
 		[relative] nstring *driver_name;
 		[relative,subcontext(0),flag(NDR_ALIGN4)] spoolss_DeviceMode *devmode;
 		[relative] nstring *text_status;
-		[relative,subcontext(0),flag(NDR_ALIGN4)] spoolss_security_descriptor *secdesc;
+		[relative,subcontext(0),flag(NDR_ALIGN4)] security_descriptor *secdesc;
 		spoolss_JobStatus status;
 		[range(0,99)] uint32 priority;
 		uint32 position;
