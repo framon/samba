@@ -585,7 +585,7 @@ sub handle_werror($$$$)
 
 	$self->pidl("if (!W_ERROR_IS_OK($var)) {");
 	$self->indent;
-	$self->pidl("PyErr_SetWERROR($var);");
+	$self->pidl("PyErr_SetWERRORObject($var, result);");
 	$self->pidl("talloc_free($mem_ctx);") if ($mem_ctx);
 	$self->pidl("return $retval;");
 	$self->deindent;
