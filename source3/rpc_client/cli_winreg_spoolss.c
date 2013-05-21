@@ -36,6 +36,8 @@
 #define TOP_LEVEL_PRINT_PRINTERS_KEY TOP_LEVEL_PRINT_KEY "\\Printers"
 #define TOP_LEVEL_CONTROL_KEY "SYSTEM\\CurrentControlSet\\Control\\Print"
 #define TOP_LEVEL_CONTROL_FORMS_KEY TOP_LEVEL_CONTROL_KEY "\\Forms"
+#define TOP_LEVEL_PORT_KEY "\\Monitors\\Standard TCP/IP Port"
+#define TOP_LEVEL_PORT_PORTS_KEY TOP_LEVEL_CONTROL_KEY TOP_LEVEL_PORT_KEY "\\Ports"
 
 #define EMPTY_STRING ""
 
@@ -585,7 +587,8 @@ static WERROR winreg_printer_ver_to_dword(const char *str, uint64_t *data)
 
 WERROR winreg_create_printer(TALLOC_CTX *mem_ctx,
 			     struct dcerpc_binding_handle *winreg_handle,
-			     const char *sharename)
+			     const char *sharename,
+			     const char *portname)
 {
 	uint32_t access_mask = SEC_FLAG_MAXIMUM_ALLOWED;
 	struct policy_handle hive_hnd, key_hnd;
@@ -861,7 +864,7 @@ WERROR winreg_create_printer(TALLOC_CTX *mem_ctx,
 	info2->sharename = sharename;
 	info2_mask |= SPOOLSS_PRINTER_INFO_SHARENAME;
 
-	info2->portname = SAMBA_PRINTER_PORT_NAME;
+	info2->portname = portname;
 	info2_mask |= SPOOLSS_PRINTER_INFO_PORTNAME;
 
 	info2->printprocessor = "winprint";
@@ -3916,6 +3919,619 @@ WERROR winreg_get_driver_list(TALLOC_CTX *mem_ctx,
 	}
 
 	*drivers_p = talloc_steal(mem_ctx, drivers);
+
+	result = WERR_OK;
+done:
+	if (winreg_handle != NULL) {
+		WERROR ignore;
+
+		if (is_valid_policy_hnd(&key_hnd)) {
+			dcerpc_winreg_CloseKey(winreg_handle, tmp_ctx, &key_hnd, &ignore);
+		}
+		if (is_valid_policy_hnd(&hive_hnd)) {
+			dcerpc_winreg_CloseKey(winreg_handle, tmp_ctx, &hive_hnd, &ignore);
+		}
+	}
+
+	TALLOC_FREE(tmp_ctx);
+	return result;
+}
+
+/**
+ * @brief Create the registry keyname for the given port.
+ *
+ * @param[in]  mem_ctx  The memory context to use.
+ *
+ * @param[in]  port  The name of the port to get the registry key.
+ *
+ * @return     The registry key or NULL on error.
+ */
+static char *winreg_port_data_keyname(TALLOC_CTX *mem_ctx, const char *port) {
+	return talloc_asprintf(mem_ctx, "%s\\%s", TOP_LEVEL_PORT_PORTS_KEY, port);
+}
+
+WERROR winreg_update_port(TALLOC_CTX *mem_ctx,
+			     struct dcerpc_binding_handle *winreg_handle,
+			     const char *portname,
+			     uint32_t data1_mask,
+			     struct spoolss_PortData1 *data1)
+{
+	uint32_t access_mask = SEC_FLAG_MAXIMUM_ALLOWED;
+	struct policy_handle hive_hnd, key_hnd;
+	int snum = lp_servicenumber(portname);
+	enum ndr_err_code ndr_err;
+	DATA_BLOB blob;
+	char *path;
+	WERROR result = WERR_OK;
+	NTSTATUS status;
+	TALLOC_CTX *tmp_ctx;
+
+	tmp_ctx = talloc_stackframe();
+	if (tmp_ctx == NULL) {
+		return WERR_NOMEM;
+	}
+
+	path = winreg_port_data_keyname(tmp_ctx, portname);
+	if (path == NULL) {
+		TALLOC_FREE(tmp_ctx);
+		return WERR_NOMEM;
+	}
+
+	ZERO_STRUCT(hive_hnd);
+	ZERO_STRUCT(key_hnd);
+
+	result = winreg_printer_openkey(tmp_ctx,
+					winreg_handle,
+					path,
+					"",
+					true,
+					access_mask,
+					&hive_hnd,
+					&key_hnd);
+	if (!W_ERROR_IS_OK(result)) {
+		DEBUG(0, ("winreg_update_port: Could not open key %s: %s\n",
+			path, win_errstr(result)));
+		goto done;
+	}
+
+	if (data1_mask & SPOOLSS_PORT_DATA_DBLSPOOL) {
+		status = dcerpc_winreg_set_dword(tmp_ctx,
+						 winreg_handle,
+						 &key_hnd,
+						 "Double Spool",
+						 data1->dblspool,
+						 &result);
+		if (!NT_STATUS_IS_OK(status)) {
+			result = ntstatus_to_werror(status);
+		}
+		if (!W_ERROR_IS_OK(result)) {
+			goto done;
+		}
+	}
+	if (data1_mask & SPOOLSS_PORT_DATA_HOSTNAME) {
+		status = dcerpc_winreg_set_sz(tmp_ctx,
+						 winreg_handle,
+						 &key_hnd,
+						 "HostName",
+						 data1->hostaddress,
+						 &result);
+		if (!NT_STATUS_IS_OK(status)) {
+			result = ntstatus_to_werror(status);
+		}
+		if (!W_ERROR_IS_OK(result)) {
+			goto done;
+		}
+	}
+	if (data1_mask & SPOOLSS_PORT_DATA_HWADDRESS) {
+		status = dcerpc_winreg_set_sz(tmp_ctx,
+						 winreg_handle,
+						 &key_hnd,
+						 "HWAddress",
+						 data1->hardware_address,
+						 &result);
+		if (!NT_STATUS_IS_OK(status)) {
+			result = ntstatus_to_werror(status);
+		}
+		if (!W_ERROR_IS_OK(result)) {
+			goto done;
+		}
+	}
+	if (data1_mask & SPOOLSS_PORT_DATA_IPADDRESS) {
+		status = dcerpc_winreg_set_sz(tmp_ctx,
+						 winreg_handle,
+						 &key_hnd,
+						 "IPAddress",
+						 data1->ip_address,
+						 &result);
+		if (!NT_STATUS_IS_OK(status)) {
+			result = ntstatus_to_werror(status);
+		}
+		if (!W_ERROR_IS_OK(result)) {
+			goto done;
+		}
+	}
+	if (data1_mask & SPOOLSS_PORT_DATA_PORTNUMBER) {
+		status = dcerpc_winreg_set_dword(tmp_ctx,
+						 winreg_handle,
+						 &key_hnd,
+						 "PortNumber",
+						 data1->port_number,
+						 &result);
+		if (!NT_STATUS_IS_OK(status)) {
+			result = ntstatus_to_werror(status);
+		}
+		if (!W_ERROR_IS_OK(result)) {
+			goto done;
+		}
+	}
+	if (data1_mask & SPOOLSS_PORT_DATA_PROTOCOL) {
+		status = dcerpc_winreg_set_dword(tmp_ctx,
+						 winreg_handle,
+						 &key_hnd,
+						 "Protocol",
+						 data1->protocol,
+						 &result);
+		if (!NT_STATUS_IS_OK(status)) {
+			result = ntstatus_to_werror(status);
+		}
+		if (!W_ERROR_IS_OK(result)) {
+			goto done;
+		}
+	}
+	if (data1_mask & SPOOLSS_PORT_DATA_QUEUE) {
+		status = dcerpc_winreg_set_sz(tmp_ctx,
+						 winreg_handle,
+						 &key_hnd,
+						 "Queue",
+						 data1->queue,
+						 &result);
+		if (!NT_STATUS_IS_OK(status)) {
+			result = ntstatus_to_werror(status);
+		}
+		if (!W_ERROR_IS_OK(result)) {
+			goto done;
+		}
+	}
+	if (data1_mask & SPOOLSS_PORT_DATA_SNMPCOMMUNITY) {
+		status = dcerpc_winreg_set_sz(tmp_ctx,
+						 winreg_handle,
+						 &key_hnd,
+						 "SNMP Community",
+						 data1->snmpcommunity,
+						 &result);
+		if (!NT_STATUS_IS_OK(status)) {
+			result = ntstatus_to_werror(status);
+		}
+		if (!W_ERROR_IS_OK(result)) {
+			goto done;
+		}
+	}
+	if (data1_mask & SPOOLSS_PORT_DATA_SNMPENABLED) {
+		status = dcerpc_winreg_set_dword(tmp_ctx,
+						 winreg_handle,
+						 &key_hnd,
+						 "SNMP Enabled",
+						 data1->snmp_enabled,
+						 &result);
+		if (!NT_STATUS_IS_OK(status)) {
+			result = ntstatus_to_werror(status);
+		}
+		if (!W_ERROR_IS_OK(result)) {
+			goto done;
+		}
+	}
+	if (data1_mask & SPOOLSS_PORT_DATA_SNMPINDEX) {
+		status = dcerpc_winreg_set_dword(tmp_ctx,
+						 winreg_handle,
+						 &key_hnd,
+						 "SNMP Index",
+						 data1->snmp_dev_index,
+						 &result);
+		if (!NT_STATUS_IS_OK(status)) {
+			result = ntstatus_to_werror(status);
+		}
+		if (!W_ERROR_IS_OK(result)) {
+			goto done;
+		}
+	}
+	if (data1_mask & SPOOLSS_PORT_DATA_VERSION) {
+		status = dcerpc_winreg_set_dword(tmp_ctx,
+						 winreg_handle,
+						 &key_hnd,
+						 "Version",
+						 data1->version,
+						 &result);
+		if (!NT_STATUS_IS_OK(status)) {
+			result = ntstatus_to_werror(status);
+		}
+		if (!W_ERROR_IS_OK(result)) {
+			goto done;
+		}
+	}
+
+	result = WERR_OK;
+done:
+	if (winreg_handle != NULL) {
+		WERROR ignore;
+
+		if (is_valid_policy_hnd(&key_hnd)) {
+			dcerpc_winreg_CloseKey(winreg_handle, tmp_ctx, &key_hnd, &ignore);
+		}
+		if (is_valid_policy_hnd(&hive_hnd)) {
+			dcerpc_winreg_CloseKey(winreg_handle, tmp_ctx, &hive_hnd, &ignore);
+		}
+	}
+
+	TALLOC_FREE(tmp_ctx);
+	return result;
+}
+
+WERROR winreg_get_port(TALLOC_CTX *mem_ctx,
+			  struct dcerpc_binding_handle *winreg_handle,
+			  const char *port,
+  			  struct spoolss_PortData1 **pdata1)
+{
+	struct spoolss_PortData1 *data1;
+	uint32_t access_mask = SEC_FLAG_MAXIMUM_ALLOWED;
+	struct policy_handle hive_hnd, key_hnd;
+	struct spoolss_PrinterEnumValues enum_value;
+	struct spoolss_PrinterEnumValues *v = NULL;
+	enum ndr_err_code ndr_err;
+	uint32_t num_values = 0;
+	uint32_t i;
+	char *path;
+	NTSTATUS status;
+	WERROR result = WERR_OK;
+	TALLOC_CTX *tmp_ctx;
+
+	const char **enum_names = NULL;
+	enum winreg_Type *enum_types = NULL;
+	DATA_BLOB *enum_data_blobs = NULL;
+
+	tmp_ctx = talloc_stackframe();
+	if (tmp_ctx == NULL) {
+		return WERR_NOMEM;
+	}
+
+	path = winreg_port_data_keyname(tmp_ctx, port);
+	if (path == NULL) {
+		TALLOC_FREE(tmp_ctx);
+		return WERR_NOMEM;
+	}
+	
+	result = winreg_printer_openkey(tmp_ctx,
+					winreg_handle,
+					path,
+					"",
+					false,
+					access_mask,
+					&hive_hnd,
+					&key_hnd);
+	if (!W_ERROR_IS_OK(result)) {
+		DEBUG(2, ("winreg_get_port: Could not open key %s: %s\n",
+			  path, win_errstr(result)));
+		goto done;
+	}
+
+	status = dcerpc_winreg_enumvals(tmp_ctx,
+				        winreg_handle,
+				        &key_hnd,
+				        &num_values,
+				        &enum_names,
+					&enum_types,
+					&enum_data_blobs,
+					&result);
+					
+	if (!NT_STATUS_IS_OK(status)){
+		result = ntstatus_to_werror(status);
+	}
+	
+	if (!W_ERROR_IS_OK(result)) {
+		DEBUG(0, ("winreg_get_port: Could not enumerate values in %s: %s\n",
+			  path, win_errstr(result)));
+		goto done;
+	}
+
+	data1 = talloc_zero(tmp_ctx, struct spoolss_PortData1);
+	if (data1 == NULL) {
+		result = WERR_NOMEM;
+		goto done;
+	}
+
+	FILL_STRING(data1, port, data1->portname);
+	FILL_STRING(data1, EMPTY_STRING, data1->hostaddress);
+	FILL_STRING(data1, EMPTY_STRING, data1->hardware_address);
+	FILL_STRING(data1, EMPTY_STRING, data1->ip_address);
+	FILL_STRING(data1, EMPTY_STRING, data1->queue);
+	FILL_STRING(data1, EMPTY_STRING, data1->snmpcommunity);
+	FILL_STRING(data1, EMPTY_STRING, data1->device_type);
+
+	for (i = 0; i < num_values; i++) {
+		enum_value.value_name = enum_names[i];
+		enum_value.value_name_len = 2*strlen_m_term(enum_names[i]);
+		enum_value.type = enum_types[i];
+		enum_value.data_length = enum_data_blobs[i].length;
+		enum_value.data = NULL;
+		if (enum_value.data_length != 0){
+			enum_value.data = &enum_data_blobs[i];
+		}
+		v = &enum_value;
+
+		result = winreg_enumval_to_dword(data1,
+					      v,
+					      "Double Spool",
+					      &data1->dblspool);
+		CHECK_ERROR(result);
+
+		result = winreg_enumval_to_sz(data1,
+					      v,
+					      "HostName",
+					      &data1->hostaddress);
+		CHECK_ERROR(result);
+
+		result = winreg_enumval_to_sz(data1,
+					      v,
+					      "HWAddress",
+					      &data1->hardware_address);
+		CHECK_ERROR(result);
+
+		result = winreg_enumval_to_sz(data1,
+					      v,
+					      "IPAddress",
+					      &data1->ip_address);
+		CHECK_ERROR(result);
+
+		result = winreg_enumval_to_dword(data1,
+					      v,
+					      "PortNumber",
+					      &data1->port_number);
+		CHECK_ERROR(result);
+
+		result = winreg_enumval_to_dword(data1,
+					      v,
+					      "Protocol",
+					      &data1->protocol);
+		CHECK_ERROR(result);
+
+		result = winreg_enumval_to_sz(data1,
+					      v,
+					      "Queue",
+					      &data1->queue);
+		CHECK_ERROR(result);
+
+		result = winreg_enumval_to_sz(data1,
+					      v,
+					      "SNMP Community",
+					      &data1->snmpcommunity);
+		CHECK_ERROR(result);
+
+		result = winreg_enumval_to_dword(data1,
+					      v,
+					      "SNMP Enabled",
+					      &data1->snmp_enabled);
+		CHECK_ERROR(result);
+
+		result = winreg_enumval_to_dword(data1,
+					      v,
+					      "SNMP Index",
+					      &data1->snmp_dev_index);
+		CHECK_ERROR(result);
+
+		result = winreg_enumval_to_dword(data1,
+					      v,
+					      "Version",
+					      &data1->version);
+		CHECK_ERROR(result);
+	}
+
+	if (pdata1) {
+		*pdata1 = talloc_move(mem_ctx, &data1);
+	}
+
+	result = WERR_OK;
+done:
+	if (winreg_handle != NULL) {
+		WERROR ignore;
+
+		if (is_valid_policy_hnd(&key_hnd)) {
+			dcerpc_winreg_CloseKey(winreg_handle, tmp_ctx, &key_hnd, &ignore);
+		}
+		if (is_valid_policy_hnd(&hive_hnd)) {
+			dcerpc_winreg_CloseKey(winreg_handle, tmp_ctx, &hive_hnd, &ignore);
+		}
+	}
+
+	TALLOC_FREE(tmp_ctx);
+	return result;
+}
+
+WERROR winreg_create_port(TALLOC_CTX *mem_ctx,
+			     struct dcerpc_binding_handle *winreg_handle,
+			     const char *portname,
+			     const char *ipaddress)
+{
+	uint32_t access_mask = SEC_FLAG_MAXIMUM_ALLOWED;
+	struct policy_handle hive_hnd, key_hnd;
+	struct spoolss_PortData1 *data1;
+	struct winreg_String wkey, wkeyclass;
+	const char *path;
+	uint32_t i;	
+	uint32_t data1_mask = 0;
+	WERROR result = WERR_OK;
+	TALLOC_CTX *tmp_ctx;
+
+	tmp_ctx = talloc_stackframe();
+	if (tmp_ctx == NULL) {
+		return WERR_NOMEM;
+	}
+
+	path = winreg_port_data_keyname(tmp_ctx, portname);
+	if (path == NULL) {
+		TALLOC_FREE(tmp_ctx);
+		return WERR_NOMEM;
+	}
+
+	ZERO_STRUCT(hive_hnd);
+	ZERO_STRUCT(key_hnd);
+
+	result = winreg_printer_openkey(tmp_ctx,
+					winreg_handle,
+					path,
+					"",
+					false,
+					access_mask,
+					&hive_hnd,
+					&key_hnd);
+	if (W_ERROR_IS_OK(result)) {
+		DEBUG(2, ("winreg_create_port: Skipping, %s already exists\n", path));
+		goto done;
+	} else if (W_ERROR_EQUAL(result, WERR_BADFILE)) {
+		DEBUG(2, ("winreg_create_port: Creating default values in %s\n", path));
+	} else if (!W_ERROR_IS_OK(result)) {
+		DEBUG(0, ("winreg_create_port: Could not open key %s: %s\n",
+			path, win_errstr(result)));
+		goto done;
+	}
+
+	/* Create the main key */
+	result = winreg_printer_openkey(tmp_ctx,
+					winreg_handle,
+					path,
+					"",
+					true,
+					access_mask,
+					&hive_hnd,
+					&key_hnd);
+	if (!W_ERROR_IS_OK(result)) {
+		DEBUG(0, ("winreg_create_port: Could not create key %s: %s\n",
+			path, win_errstr(result)));
+		goto done;
+	}
+
+	if (is_valid_policy_hnd(&key_hnd)) {
+		dcerpc_winreg_CloseKey(winreg_handle, tmp_ctx, &key_hnd, &result);
+	}
+	
+	data1 = talloc_zero(tmp_ctx, struct spoolss_PortData1);
+	if (data1 == NULL) {
+		result = WERR_NOMEM;
+		goto done;
+	}
+
+	data1->hostaddress = "";
+	data1_mask |= SPOOLSS_PORT_DATA_HOSTNAME;
+
+	data1->hardware_address = "";
+	data1_mask |= SPOOLSS_PORT_DATA_HWADDRESS;
+
+	data1->ip_address = ipaddress;
+	data1_mask |= SPOOLSS_PORT_DATA_IPADDRESS;
+
+	data1->port_number = 9100;
+	data1_mask |= SPOOLSS_PORT_DATA_PORTNUMBER;
+
+	data1->protocol = 1;
+	data1_mask |= SPOOLSS_PORT_DATA_PROTOCOL;
+
+	data1->snmpcommunity = "public";
+	data1_mask |= SPOOLSS_PORT_DATA_SNMPCOMMUNITY;
+
+	data1->snmp_enabled = 1;
+	data1_mask |= SPOOLSS_PORT_DATA_SNMPENABLED;
+
+	data1->snmp_dev_index = 1;
+	data1_mask |= SPOOLSS_PORT_DATA_SNMPINDEX;
+
+	data1->version = 1;
+	data1_mask |= SPOOLSS_PORT_DATA_VERSION;
+
+	result = winreg_update_port(tmp_ctx,
+				       winreg_handle,
+				       portname,
+				       data1_mask,
+				       data1);
+
+done:
+	if (winreg_handle != NULL) {
+		WERROR ignore;
+
+		if (is_valid_policy_hnd(&key_hnd)) {
+			dcerpc_winreg_CloseKey(winreg_handle, tmp_ctx, &key_hnd, &ignore);
+		}
+		if (is_valid_policy_hnd(&hive_hnd)) {
+			dcerpc_winreg_CloseKey(winreg_handle, tmp_ctx, &hive_hnd, &ignore);
+		}
+	}
+
+	talloc_free(tmp_ctx);
+	return result;
+}
+
+/* Enumerate the subkeys of a given key */
+WERROR winreg_enum_ports_key(TALLOC_CTX *mem_ctx,
+			       struct dcerpc_binding_handle *winreg_handle,
+			       uint32_t *pnum_subkeys,
+			       const char ***psubkeys)
+{
+	uint32_t access_mask = SEC_FLAG_MAXIMUM_ALLOWED;
+	struct policy_handle hive_hnd, key_hnd;
+	char *path;
+	const char **subkeys = NULL;
+	uint32_t num_subkeys = -1;
+
+	WERROR result = WERR_OK;
+	NTSTATUS status;
+
+	TALLOC_CTX *tmp_ctx;
+
+	tmp_ctx = talloc_stackframe();
+	if (tmp_ctx == NULL) {
+		return WERR_NOMEM;
+	}
+
+	path = TOP_LEVEL_PORT_PORTS_KEY;
+	
+	if (path == NULL) {
+		TALLOC_FREE(tmp_ctx);
+		return WERR_NOMEM;
+	}
+
+	ZERO_STRUCT(hive_hnd);
+	ZERO_STRUCT(key_hnd);
+
+	result = winreg_printer_openkey(tmp_ctx,
+					winreg_handle,
+					path,
+					"",
+					false,
+					access_mask,
+					&hive_hnd,
+					&key_hnd);
+	if (!W_ERROR_IS_OK(result)) {
+		DEBUG(2, ("winreg_enum_ports: Could not open key %s: %s\n",
+			  path, win_errstr(result)));
+		goto done;
+	}
+
+	status = dcerpc_winreg_enum_keys(tmp_ctx,
+					 winreg_handle,
+					 &key_hnd,
+					 &num_subkeys,
+					 &subkeys,
+					 &result);
+	if (!NT_STATUS_IS_OK(status)) {
+		result = ntstatus_to_werror(status);
+	}
+	if (!W_ERROR_IS_OK(result)) {
+		DEBUG(0, ("winreg_enum_ports: Could not enumerate subkeys in %s: %s\n",
+			  path, win_errstr(result)));
+		goto done;
+	}
+
+	*pnum_subkeys = num_subkeys;
+	if (psubkeys) {
+		*psubkeys = talloc_move(mem_ctx, &subkeys);
+	}
 
 	result = WERR_OK;
 done:

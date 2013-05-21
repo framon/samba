@@ -532,9 +532,9 @@ static void prune_printername_cache(void)
 
 /****************************************************************************
  Set printer handle name..  Accept names like \\server, \\server\printer,
- \\server\SHARE, & "\\server\,XcvMonitor Standard TCP/IP Port"    See
- the MSDN docs regarding OpenPrinter() for details on the XcvData() and
- XcvDataPort() interface.
+ \\server\SHARE, "\\server\,XcvMonitor Standard TCP/IP Port", &
+ "\\server\,XcvPort portname"    See the MSDN docs regarding OpenPrinter()
+ for details on the XcvData() and XcvDataPort() interface.
 ****************************************************************************/
 
 static WERROR set_printer_hnd_name(TALLOC_CTX *mem_ctx,
@@ -546,10 +546,12 @@ static WERROR set_printer_hnd_name(TALLOC_CTX *mem_ctx,
 	int snum;
 	int n_services=lp_numservices();
 	char *aprinter;
+	const char *portname;
 	const char *printername;
 	const char *servername = NULL;
 	fstring sname;
 	bool found = false;
+	struct spoolss_PortData1 *data1 = NULL;
 	struct spoolss_PrinterInfo2 *info2 = NULL;
 	WERROR result;
 	char *p;
@@ -571,6 +573,11 @@ static WERROR set_printer_hnd_name(TALLOC_CTX *mem_ctx,
 		if ( (aprinter = strchr_m( servername, '\\' )) != NULL ) {
 			*aprinter = '\0';
 			aprinter++;
+			/* Ensure there isn't a second backslash */
+			if ( *aprinter == '\\' ) {
+				*aprinter = '\0';
+				aprinter++;
+			}
 		}
 		if (!is_myname_or_ipaddr(servername)) {
 			return WERR_INVALID_PRINTER_NAME;
@@ -620,7 +627,36 @@ static WERROR set_printer_hnd_name(TALLOC_CTX *mem_ctx,
 		fstrcpy(sname, SPL_XCV_MONITOR_LOCALMON);
 		found = true;
 	}
+	else if ( strstr(aprinter, SPL_XCV_PORT) ) {
+		if ((portname = strchr_m(aprinter, ' ')) != NULL ) {
+			portname++;
+			/* Don't bother searching the registry for 
+			   dummy port name: "Samba Printer Port" */
+			if (!strequal(portname, SAMBA_PRINTER_PORT_NAME)) {
 
+				result = winreg_get_port_internal(mem_ctx,
+								  session_info,
+								  msg_ctx,
+								  portname,
+								  &data1);
+				if (!W_ERROR_IS_OK(result)) {
+					DEBUG(2,("set_printer_hnd_name: failed to lookup port [%s] -- result [%s]\n",
+						portname, win_errstr(result)));
+					return WERR_INVALID_PRINTER_NAME;
+				}
+
+				DEBUG(4, ("Found Port: [%s]\n", portname));
+				fstrcpy(sname, portname);
+				Printer->printer_type = SPLHND_PORTMON_TCP;
+
+				TALLOC_FREE(data1);
+				goto done;
+			}
+		}
+
+		DEBUGADD(4,("Port %s not found\n", portname));
+		return WERR_INVALID_PRINTER_NAME;
+	}
 	/*
 	 * With hundreds of printers, the "for" loop iterating all
 	 * shares can be quite expensive, as it is done on every
@@ -715,6 +751,7 @@ static WERROR set_printer_hnd_name(TALLOC_CTX *mem_ctx,
 		TALLOC_FREE(cache_key);
 	}
 
+done:
 	DEBUGADD(4,("set_printer_hnd_name: Printer found: %s -> %s\n", aprinter, sname));
 
 	strlcpy(Printer->sharename, sname, sizeof(Printer->sharename));
@@ -1694,6 +1731,76 @@ static WERROR copy_devicemode(TALLOC_CTX *mem_ctx,
 	return WERR_OK;
 }
 
+/********************************************************************
+********************************************************************/
+
+static bool get_printer_port(TALLOC_CTX *mem_ctx,
+				 const char *printername,
+				 const char **portname,
+				 const char **ipaddress)
+{
+	const char *uri = NULL;
+	char *p, *tmpuri;
+	NTSTATUS nt_status;
+
+	nt_status = printer_list_get_printer(mem_ctx,
+					     printername,
+					     NULL,
+					     NULL,
+					     &uri,
+					     NULL);
+
+	if (NT_STATUS_IS_OK(nt_status)) {
+		if (uri != NULL) {
+			/* We only care about network URIs */
+			if (uri == strstr(uri, "ipp://") || uri == strstr(uri, "http://") ||
+			    uri == strstr(uri, "lpd://") || uri == strstr(uri, "https://") ||
+			    uri == strstr(uri, "socket://")) {
+			    	uri = strchr(uri, ':');
+				uri += 3;
+
+				p = talloc_strdup(mem_ctx, uri);
+				if (p == NULL) {
+					return false;
+				}
+
+				if ((tmpuri = strchr(p, ':')) != NULL) {
+					*tmpuri = '\0';
+				}
+				if ((tmpuri = strchr(p, '/')) != NULL) {
+					*tmpuri = '\0';
+				}
+
+				/* If what's left after stripping extra characters isn't a valid
+				 * IP address, give up. Should we do a DNS lookup on the string? */
+				if (inet_addr(p) == -1) {
+					goto done;
+				}
+
+				if (portname) {
+					*portname = talloc_asprintf(mem_ctx, "IP_%s", p);
+					if(*portname == NULL) {
+						return false;
+					}
+				}
+				if (ipaddress) {
+					*ipaddress = talloc_strdup(mem_ctx, p);
+					if(*ipaddress == NULL) {
+						return false;
+					}
+				}
+
+				talloc_free(p);
+				return true;
+			}
+		}
+	}
+
+done:
+	DEBUGADD(2,("Printer URI references a local printer or is not recognized.\n"));
+	return false;
+}
+
 /****************************************************************
  _spoolss_OpenPrinterEx
 ****************************************************************/
@@ -1704,6 +1811,7 @@ WERROR _spoolss_OpenPrinterEx(struct pipes_struct *p,
 	int snum;
 	char *raddr;
 	char *rhost;
+	const char *portname, *ipaddress;
 	struct printer_handle *Printer=NULL;
 	WERROR result;
 	int rc;
@@ -1919,11 +2027,23 @@ WERROR _spoolss_OpenPrinterEx(struct pipes_struct *p,
 
 		DEBUG(4,("Setting printer access = %s\n", (r->in.access_mask == PRINTER_ACCESS_ADMINISTER)
 			? "PRINTER_ACCESS_ADMINISTER" : "PRINTER_ACCESS_USE" ));
+		
+		if (get_printer_port(p->mem_ctx, lp_const_servicename(snum), &portname, &ipaddress)) {
+			winreg_create_port_internal(p->mem_ctx,
+					      get_session_info_system(),
+					      p->msg_ctx,
+					      portname,
+					      ipaddress);
+		} else {
+                	portname = talloc_strdup(p->mem_ctx, SAMBA_PRINTER_PORT_NAME);
+                	W_ERROR_HAVE_NO_MEMORY(portname);
+		}
 
 		winreg_create_printer_internal(p->mem_ctx,
 				      get_session_info_system(),
 				      p->msg_ctx,
-				      lp_const_servicename(snum));
+				      lp_const_servicename(snum),
+				      portname);
 
 		break;
 
@@ -2843,6 +2963,7 @@ static void spoolss_notify_location(struct messaging_context *msg_ctx,
 					  pinfo2->sharename,
 					  NULL,
 					  &loc,
+					  NULL,
 					  NULL);
 	if (NT_STATUS_IS_OK(status)) {
 		if (loc == NULL) {
@@ -4000,6 +4121,7 @@ static WERROR construct_printer_info2(TALLOC_CTX *mem_ctx,
 						     info2->sharename,
 						     NULL,
 						     &loc,
+						     NULL,
 						     NULL);
 		if (NT_STATUS_IS_OK(nt_status)) {
 			if (loc != NULL) {
@@ -4303,6 +4425,7 @@ static WERROR enum_all_printers_info_level(TALLOC_CTX *mem_ctx,
 
 	for (snum = 0; snum < n_services; snum++) {
 
+		const char *portname;
 		const char *printer;
 		struct spoolss_PrinterInfo2 *info2;
 
@@ -4325,8 +4448,14 @@ static WERROR enum_all_printers_info_level(TALLOC_CTX *mem_ctx,
 			}
 		}
 
+		if(!get_printer_port(tmp_ctx, printer, &portname, NULL)) {
+                        portname = talloc_strdup(tmp_ctx, SAMBA_PRINTER_PORT_NAME);
+                        W_ERROR_HAVE_NO_MEMORY(portname);
+                }
+
 		result = winreg_create_printer(tmp_ctx, b,
-					       printer);
+					       printer,
+					       portname);
 		if (!W_ERROR_IS_OK(result)) {
 			goto out;
 		}
@@ -7901,49 +8030,61 @@ static WERROR enumports_hook(TALLOC_CTX *ctx, int *count, char ***lines)
 ****************************************************************************/
 
 static WERROR enumports_level_1(TALLOC_CTX *mem_ctx,
+				const struct auth_session_info *session_info,
+				struct messaging_context *msg_ctx,
 				union spoolss_PortInfo **info_p,
 				uint32_t *count)
 {
+	uint32_t num_keys;
 	union spoolss_PortInfo *info = NULL;
 	int i=0;
 	WERROR result = WERR_OK;
-	char **qlines = NULL;
-	int numlines = 0;
+	const char **array = NULL;
+	DATA_BLOB blob;
 
-	result = enumports_hook(talloc_tos(), &numlines, &qlines );
+	result = winreg_enum_ports_key_internal(mem_ctx,
+					 session_info,
+					 msg_ctx,
+					 &num_keys,
+					 &array);
 	if (!W_ERROR_IS_OK(result)) {
 		goto out;
 	}
 
-	if (numlines) {
-		info = talloc_array(mem_ctx, union spoolss_PortInfo, numlines);
+	if (!push_reg_multi_sz(mem_ctx, &blob, array)) {
+		result = WERR_NOMEM;
+		goto out;
+	}
+
+	if (num_keys) {
+		info = talloc_array(mem_ctx, union spoolss_PortInfo, num_keys);
 		if (!info) {
 			DEBUG(10,("Returning WERR_NOMEM\n"));
 			result = WERR_NOMEM;
 			goto out;
 		}
 
-		for (i=0; i<numlines; i++) {
-			DEBUG(6,("Filling port number [%d] with port [%s]\n", i, qlines[i]));
-			result = fill_port_1(info, &info[i].info1, qlines[i]);
+		for (i=0; i<num_keys; i++) {
+			DEBUG(6,("Filling port number [%d] with port [%s]\n", i, array[i]));
+			result = fill_port_1(info, &info[i].info1, array[i]);
 			if (!W_ERROR_IS_OK(result)) {
 				goto out;
 			}
 		}
 	}
-	TALLOC_FREE(qlines);
+	TALLOC_FREE(array);
 
 out:
 	if (!W_ERROR_IS_OK(result)) {
 		TALLOC_FREE(info);
-		TALLOC_FREE(qlines);
+		TALLOC_FREE(array);
 		*count = 0;
 		*info_p = NULL;
 		return result;
 	}
 
 	*info_p = info;
-	*count = numlines;
+	*count = num_keys;
 
 	return WERR_OK;
 }
@@ -7953,49 +8094,61 @@ out:
 ****************************************************************************/
 
 static WERROR enumports_level_2(TALLOC_CTX *mem_ctx,
+				const struct auth_session_info *session_info,
+				struct messaging_context *msg_ctx,
 				union spoolss_PortInfo **info_p,
 				uint32_t *count)
 {
+	uint32_t num_keys;
 	union spoolss_PortInfo *info = NULL;
 	int i=0;
 	WERROR result = WERR_OK;
-	char **qlines = NULL;
-	int numlines = 0;
+	const char **array = NULL;
+	DATA_BLOB blob;
 
-	result = enumports_hook(talloc_tos(), &numlines, &qlines );
+	result = winreg_enum_ports_key_internal(mem_ctx,
+					 session_info,
+					 msg_ctx,
+					 &num_keys,
+					 &array);
 	if (!W_ERROR_IS_OK(result)) {
 		goto out;
 	}
 
-	if (numlines) {
-		info = talloc_array(mem_ctx, union spoolss_PortInfo, numlines);
+	if (!push_reg_multi_sz(mem_ctx, &blob, array)) {
+		result = WERR_NOMEM;
+		goto out;
+	}
+
+	if (num_keys) {
+		info = talloc_array(mem_ctx, union spoolss_PortInfo, num_keys);
 		if (!info) {
 			DEBUG(10,("Returning WERR_NOMEM\n"));
 			result = WERR_NOMEM;
 			goto out;
 		}
 
-		for (i=0; i<numlines; i++) {
-			DEBUG(6,("Filling port number [%d] with port [%s]\n", i, qlines[i]));
-			result = fill_port_2(info, &info[i].info2, qlines[i]);
+		for (i=0; i<num_keys; i++) {
+			DEBUG(6,("Filling port number [%d] with port [%s]\n", i, array[i]));
+			result = fill_port_2(info, &info[i].info2, array[i]);
 			if (!W_ERROR_IS_OK(result)) {
 				goto out;
 			}
 		}
 	}
-	TALLOC_FREE(qlines);
+	TALLOC_FREE(array);
 
 out:
 	if (!W_ERROR_IS_OK(result)) {
 		TALLOC_FREE(info);
-		TALLOC_FREE(qlines);
+		TALLOC_FREE(array);
 		*count = 0;
 		*info_p = NULL;
 		return result;
 	}
 
 	*info_p = info;
-	*count = numlines;
+	*count = num_keys;
 
 	return WERR_OK;
 }
@@ -8007,6 +8160,7 @@ out:
 WERROR _spoolss_EnumPorts(struct pipes_struct *p,
 			  struct spoolss_EnumPorts *r)
 {
+	const struct auth_session_info *session_info = get_session_info_system();
 	WERROR result;
 
 	/* that's an [in out] buffer */
@@ -8023,11 +8177,13 @@ WERROR _spoolss_EnumPorts(struct pipes_struct *p,
 
 	switch (r->in.level) {
 	case 1:
-		result = enumports_level_1(p->mem_ctx, r->out.info,
+		result = enumports_level_1(p->mem_ctx, session_info,
+					   p->msg_ctx, r->out.info,
 					   r->out.count);
 		break;
 	case 2:
-		result = enumports_level_2(p->mem_ctx, r->out.info,
+		result = enumports_level_2(p->mem_ctx, session_info,
+					   p->msg_ctx, r->out.info,
 					   r->out.count);
 		break;
 	default:

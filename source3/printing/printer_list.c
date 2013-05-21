@@ -28,7 +28,7 @@
 #define PL_KEY_PREFIX "PRINTERLIST/PRN/"
 #define PL_KEY_FORMAT PL_KEY_PREFIX"%s"
 #define PL_TIMESTAMP_KEY "PRINTERLIST/GLOBAL/LAST_REFRESH"
-#define PL_DATA_FORMAT "ddPPP"
+#define PL_DATA_FORMAT "ddPPPP"
 #define PL_TSTAMP_FORMAT "dd"
 
 static struct db_context *get_printer_list_db(void)
@@ -67,6 +67,7 @@ NTSTATUS printer_list_get_printer(TALLOC_CTX *mem_ctx,
 				  const char *name,
 				  const char **comment,
 				  const char **location,
+				  const char **uri,
 				  time_t *last_refresh)
 {
 	struct db_context *db;
@@ -76,6 +77,7 @@ NTSTATUS printer_list_get_printer(TALLOC_CTX *mem_ctx,
 	char *nstr = NULL;
 	char *cstr = NULL;
 	char *lstr = NULL;
+	char *ustr = NULL;
 	NTSTATUS status;
 	int ret;
 
@@ -99,7 +101,7 @@ NTSTATUS printer_list_get_printer(TALLOC_CTX *mem_ctx,
 
 	ret = tdb_unpack(data.dptr, data.dsize,
 			 PL_DATA_FORMAT,
-			 &time_h, &time_l, &nstr, &cstr, &lstr);
+			 &time_h, &time_l, &nstr, &cstr, &lstr, &ustr);
 	if (ret == -1) {
 		DEBUG(1, ("Failed to un pack printer data"));
 		status = NT_STATUS_INTERNAL_DB_CORRUPTION;
@@ -128,6 +130,15 @@ NTSTATUS printer_list_get_printer(TALLOC_CTX *mem_ctx,
 		}
 	}
 
+	if (uri) {
+		*uri = talloc_strdup(mem_ctx, ustr);
+		if (*uri == NULL) {
+			DEBUG(1, ("Failed to strdup uri!\n"));
+			status = NT_STATUS_NO_MEMORY;
+			goto done;
+		}
+	}
+
 	status = NT_STATUS_OK;
 
 done:
@@ -141,6 +152,7 @@ NTSTATUS printer_list_set_printer(TALLOC_CTX *mem_ctx,
 				  const char *name,
 				  const char *comment,
 				  const char *location,
+				  const char *uri,
 				  time_t last_refresh)
 {
 	struct db_context *db;
@@ -170,6 +182,10 @@ NTSTATUS printer_list_set_printer(TALLOC_CTX *mem_ctx,
 		location = "";
 	}
 
+	if (uri == NULL) {
+		uri = "";
+	}
+
 	time_64 = last_refresh;
 	time_l = time_64 & 0xFFFFFFFFL;
 	time_h = time_64 >> 32;
@@ -180,7 +196,8 @@ NTSTATUS printer_list_set_printer(TALLOC_CTX *mem_ctx,
 		       time_l,
 		       name,
 		       comment,
-		       location);
+		       location,
+		       uri);
 
 	data.dptr = talloc_array(key, uint8_t, len);
 	if (!data.dptr) {
@@ -311,6 +328,7 @@ static int printer_list_clean_fn(struct db_record *rec, void *private_data)
 	char *name;
 	char *comment;
 	char *location;
+	char *uri;
 	int ret;
 	TDB_DATA key;
 	TDB_DATA value;
@@ -327,7 +345,7 @@ static int printer_list_clean_fn(struct db_record *rec, void *private_data)
 
 	ret = tdb_unpack(value.dptr, value.dsize,
 			 PL_DATA_FORMAT, &time_h, &time_l, &name, &comment,
-			 &location);
+			 &location, &uri);
 	if (ret == -1) {
 		DEBUG(1, ("Failed to un pack printer data"));
 		state->status = NT_STATUS_INTERNAL_DB_CORRUPTION;
@@ -337,6 +355,7 @@ static int printer_list_clean_fn(struct db_record *rec, void *private_data)
 	SAFE_FREE(name);
 	SAFE_FREE(comment);
 	SAFE_FREE(location);
+	SAFE_FREE(uri);
 
 	refresh = (time_t)(((uint64_t)time_h << 32) + time_l);
 
@@ -372,7 +391,7 @@ NTSTATUS printer_list_clean_old(void)
 }
 
 struct printer_list_exec_state {
-	void (*fn)(const char *, const char *, const char *, void *);
+	void (*fn)(const char *, const char *, const char *, const char *, void *);
 	void *private_data;
 	NTSTATUS status;
 };
@@ -385,6 +404,7 @@ static int printer_list_exec_fn(struct db_record *rec, void *private_data)
 	char *name;
 	char *comment;
 	char *location;
+	char *uri;
 	int ret;
 	TDB_DATA key;
 	TDB_DATA value;
@@ -400,22 +420,23 @@ static int printer_list_exec_fn(struct db_record *rec, void *private_data)
 
 	ret = tdb_unpack(value.dptr, value.dsize,
 			 PL_DATA_FORMAT, &time_h, &time_l, &name, &comment,
-			 &location);
+			 &location, &uri);
 	if (ret == -1) {
 		DEBUG(1, ("Failed to un pack printer data"));
 		state->status = NT_STATUS_INTERNAL_DB_CORRUPTION;
 		return -1;
 	}
 
-	state->fn(name, comment, location, state->private_data);
+	state->fn(name, comment, location, uri, state->private_data);
 
 	SAFE_FREE(name);
 	SAFE_FREE(comment);
 	SAFE_FREE(location);
+	SAFE_FREE(uri);
 	return 0;
 }
 
-NTSTATUS printer_list_run_fn(void (*fn)(const char *, const char *, const char *, void *),
+NTSTATUS printer_list_run_fn(void (*fn)(const char *, const char *, const char *, const char *, void *),
 			     void *private_data)
 {
 	struct printer_list_exec_state state;

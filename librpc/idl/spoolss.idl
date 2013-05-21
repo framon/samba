@@ -2124,6 +2124,7 @@ cpp_quote("#define spoolss_security_descriptor security_descriptor")
 	const string SPL_TCPIP_PORT		= "Standard TCP/IP Port";
 	const string SPL_XCV_MONITOR_LOCALMON   = ",XcvMonitor Local Port";
 	const string SPL_XCV_MONITOR_TCPMON	= ",XcvMonitor Standard TCP/IP Port";
+	const string SPL_XCV_PORT		= ",XcvPort ";
 
 	typedef [public,gensize] struct {
 		[relative] nstring *port_name;

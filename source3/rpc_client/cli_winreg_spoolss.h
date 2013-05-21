@@ -24,6 +24,34 @@
 
 struct dcerpc_binding_handle;
 
+enum spoolss_PortData1Mask {
+	SPOOLSS_PORT_DATA_DBLSPOOL       = (int)(0x00000001),
+	SPOOLSS_PORT_DATA_HOSTNAME       = (int)(0x00000002),
+	SPOOLSS_PORT_DATA_HWADDRESS      = (int)(0x00000004),
+	SPOOLSS_PORT_DATA_IPADDRESS      = (int)(0x00000008),
+	SPOOLSS_PORT_DATA_PORTNUMBER     = (int)(0x00000010),
+	SPOOLSS_PORT_DATA_PROTOCOL       = (int)(0x00000020),
+	SPOOLSS_PORT_DATA_QUEUE          = (int)(0x00000040),
+	SPOOLSS_PORT_DATA_SNMPCOMMUNITY  = (int)(0x00000080),
+	SPOOLSS_PORT_DATA_SNMPENABLED    = (int)(0x00000100),
+	SPOOLSS_PORT_DATA_SNMPINDEX      = (int)(0x00000200),
+	SPOOLSS_PORT_DATA_VERSION        = (int)(0x00000400),
+};
+
+#define SPOOLSS_PORT_DATA_ALL    SPOOLSS_PORT_DATA_DBLSPOOL      | \
+                                 SPOOLSS_PORT_DATA_HOSTNAME      | \
+                                 SPOOLSS_PORT_DATA_HWADDRESS     | \
+                                 SPOOLSS_PORT_DATA_IPADDRESS     | \
+                                 SPOOLSS_PORT_DATA_PORTNUMBER    | \
+                                 SPOOLSS_PORT_DATA_PROTOCOL      | \
+                                 SPOOLSS_PORT_DATA_QUEUE         | \
+                                 SPOOLSS_PORT_DATA_SNMPCOMMUNITY | \
+                                 SPOOLSS_PORT_DATA_SNMPENABLED   | \
+                                 SPOOLSS_PORT_DATA_SNMPINDEX     | \
+                                 SPOOLSS_PORT_DATA_VERSION
+
+
+
 enum spoolss_PrinterInfo2Mask {
 	SPOOLSS_PRINTER_INFO_ATTRIBUTES      = (int)(0x00000001),
 	SPOOLSS_PRINTER_INFO_AVERAGEPPM      = (int)(0x00000002),
@@ -74,7 +102,8 @@ enum spoolss_PrinterInfo2Mask {
 
 WERROR winreg_create_printer(TALLOC_CTX *mem_ctx,
 			     struct dcerpc_binding_handle *b,
-			     const char *sharename);
+			     const char *sharename,
+			     const char *portname);
 
 /**
  * @internal
@@ -565,5 +594,85 @@ WERROR winreg_get_driver_list(TALLOC_CTX *mem_ctx,
 			      uint32_t version,
 			      uint32_t *num_drivers,
 			      const char ***drivers);
+
+/**
+ * @brief Get the inforamtion of a port stored in the registry.
+ *
+ * @param[in]  mem_ctx  The talloc memory context to use.
+ *
+ * @param[in]  b The dcerpc binding handle
+ *
+ * @param[in]  port  The name of the port to get.
+ *
+ * @param[out] pdata1   A pointer to store a PRINTER_INFO_2 structure.
+ *
+ * @return              On success WERR_OK, a corresponding DOS error is
+ *                      something went wrong.
+ */
+WERROR winreg_get_port(TALLOC_CTX *mem_ctx,
+			  struct dcerpc_binding_handle *b,
+			  const char *port,
+			  struct spoolss_PortData1 **pdata1);
+
+/**
+ * @brief Create a new port in the registry.
+ *
+ * @param[in]  mem_ctx  The talloc memory context to use.
+ *
+ * @param[in]  b The dcerpc binding handle
+ *
+ * @param[in]  portname  The name of the port to get.
+ *
+ * @param[in]  ipaddress The IP address of the port
+ *
+ * @return              On success WERR_OK, a corresponding DOS error is
+ *                      something went wrong.
+ */
+WERROR winreg_create_port(TALLOC_CTX *mem_ctx,
+			     struct dcerpc_binding_handle *b,
+			     const char *portname,
+			     const char *ipaddress);
+
+/**
+ * @brief Update the information of a port in the registry.
+ *
+ * @param[in]  mem_ctx  The talloc memory context to use.
+ *
+ * @param[in]  b The dcerpc binding handle
+ *
+ * @param[in]  portname  The name of the port to get.
+ *
+ * @param[in]  data1_mask A bitmask which defines which values should be set.
+ *
+ * @param[out] data1   The structure that holds the port information
+ *
+ * @return              On success WERR_OK, a corresponding DOS error is
+ *                      something went wrong.
+ */
+WERROR winreg_update_port(TALLOC_CTX *mem_ctx,
+			     struct dcerpc_binding_handle *b,
+			     const char *portname,
+			     uint32_t data1_mask,
+			     struct spoolss_PortData1 *data1);
+
+/**
+ * @brief Enumerate a list of ports from the registry.
+ *
+ * @param[in]  mem_ctx  The talloc memory context to use.
+ *
+ * @param[in]  b The dcerpc binding handle
+ *
+ * @param[out] pnum_subkeys A pointer to store the number of subkeys found.
+ *
+ * @param[in]  psubkeys A pointer to an array to store the names of the subkeys
+ *                      found.
+ *
+ * @return              On success WERR_OK, a corresponding DOS error is
+ *                      something went wrong.
+ */
+WERROR winreg_enum_ports_key(TALLOC_CTX *mem_ctx,
+			       struct dcerpc_binding_handle *b,
+			       uint32_t *pnum_subkeys,
+			       const char ***psubkeys);
 
 #endif /* _RPC_CLIENT_CLI_WINREG_SPOOLSS_H_ */

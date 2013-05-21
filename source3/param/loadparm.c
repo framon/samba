@@ -3937,7 +3937,8 @@ static void lp_add_auto_services(char *str)
 ***************************************************************************/
 
 void lp_add_one_printer(const char *name, const char *comment,
-			const char *location, void *pdata)
+			const char *location, const char *uri,
+			void *pdata)
 {
 	int printers = lp_servicenumber(PRINTERS_NAME);
 	int i;

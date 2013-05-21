@@ -52,7 +52,8 @@ WERROR winreg_get_printer_internal(TALLOC_CTX *mem_ctx,
 WERROR winreg_create_printer_internal(TALLOC_CTX *mem_ctx,
 				      const struct auth_session_info *session_info,
 				      struct messaging_context *msg_ctx,
-				      const char *sharename);
+				      const char *sharename,
+				      const char *portname);
 WERROR winreg_update_printer_internal(TALLOC_CTX *mem_ctx,
 				      const struct auth_session_info *session_info,
 				      struct messaging_context *msg_ctx,
@@ -157,4 +158,19 @@ WERROR winreg_enum_printer_key_internal(TALLOC_CTX *mem_ctx,
 					const char *key,
 					uint32_t *pnum_subkeys,
 					const char ***psubkeys);
+WERROR winreg_enum_ports_key_internal(TALLOC_CTX *mem_ctx,
+				      const struct auth_session_info *session_info,
+				      struct messaging_context *msg_ctx,
+				      uint32_t *pnum_subkeys,
+				      const char ***psubkeys);
+WERROR winreg_get_port_internal(TALLOC_CTX *mem_ctx,
+				const struct auth_session_info *session_info,
+				struct messaging_context *msg_ctx,
+				const char *port,
+				struct spoolss_PortData1 **pdata1);
+WERROR winreg_create_port_internal(TALLOC_CTX *mem_ctx,
+				   const struct auth_session_info *session_info,
+				   struct messaging_context *msg_ctx,
+				   const char *portname,
+				   const char *ipaddress);
 #endif /* _SRV_SPOOLSS_UITL_H */

@@ -182,7 +182,8 @@ WERROR winreg_get_printer_internal(TALLOC_CTX *mem_ctx,
 WERROR winreg_create_printer_internal(TALLOC_CTX *mem_ctx,
 				      const struct auth_session_info *session_info,
 				      struct messaging_context *msg_ctx,
-				      const char *sharename)
+				      const char *sharename,
+				      const char *portname)
 {
 	WERROR result;
 	struct dcerpc_binding_handle *b;
@@ -201,7 +202,8 @@ WERROR winreg_create_printer_internal(TALLOC_CTX *mem_ctx,
 
 	result = winreg_create_printer(mem_ctx,
 				       b,
-				       sharename);
+				       sharename,
+				       portname);
 
 	talloc_free(tmp_ctx);
 	return result;
@@ -753,4 +755,55 @@ WERROR winreg_enum_printer_key_internal(TALLOC_CTX *mem_ctx,
 
 	talloc_free(tmp_ctx);
 	return result;
+}
+
+WERROR winreg_enum_ports_key_internal(TALLOC_CTX *mem_ctx,
+				      const struct auth_session_info *session_info,
+ 				      struct messaging_context *msg_ctx,
+				      uint32_t *pnum_subkeys,
+				      const char ***psubkeys)
+{
+	WERROR result;
+	struct dcerpc_binding_handle *b;
+
+	result = winreg_printer_binding_handle(mem_ctx, session_info, msg_ctx, &b);
+	W_ERROR_NOT_OK_RETURN(result);
+
+	return winreg_enum_ports_key(mem_ctx, b,
+				     pnum_subkeys,
+				     psubkeys);
+}
+
+WERROR winreg_get_port_internal(TALLOC_CTX *mem_ctx,
+				const struct auth_session_info *session_info,
+				struct messaging_context *msg_ctx,
+				const char *port,
+				struct spoolss_PortData1 **pdata1)
+{
+	WERROR result;
+	struct dcerpc_binding_handle *b;
+
+	result = winreg_printer_binding_handle(mem_ctx, session_info, msg_ctx, &b);
+	W_ERROR_NOT_OK_RETURN(result);
+
+	return winreg_get_port(mem_ctx, b,
+			       port,
+			       pdata1);
+}
+
+WERROR winreg_create_port_internal(TALLOC_CTX *mem_ctx,
+				   const struct auth_session_info *session_info,
+				   struct messaging_context *msg_ctx,
+				   const char *portname,
+				   const char *ipaddress)
+{
+      WERROR result;
+      struct dcerpc_binding_handle *b;
+
+      result = winreg_printer_binding_handle(mem_ctx, session_info, msg_ctx, &b);
+      W_ERROR_NOT_OK_RETURN(result);
+
+      return winreg_create_port(mem_ctx, b,
+				portname,
+				ipaddress);
 }

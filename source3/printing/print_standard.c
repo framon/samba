@@ -117,7 +117,7 @@ bool std_pcap_cache_reload(const char *pcap_name)
 			}
 		}
 
-		if (*name && !pcap_cache_add(name, comment, NULL)) {
+		if (*name && !pcap_cache_add(name, comment, NULL, NULL)) {
 			x_fclose(pcap_file);
 			return false;
 		}

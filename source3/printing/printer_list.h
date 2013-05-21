@@ -44,6 +44,7 @@ NTSTATUS printer_list_get_printer(TALLOC_CTX *mem_ctx,
 				  const char *name,
 				  const char **comment,
 				  const char **location,
+				  const char **uri,
 				  time_t *last_refresh);
 
 /**
@@ -67,6 +68,7 @@ NTSTATUS printer_list_set_printer(TALLOC_CTX *mem_ctx,
 				  const char *name,
 				  const char *comment,
 				  const char *location,
+				  const char *uri,
 				  time_t last_refresh);
 
 /**
@@ -100,6 +102,6 @@ NTSTATUS printer_list_mark_reload(void);
  */
 NTSTATUS printer_list_clean_old(void);
 
-NTSTATUS printer_list_run_fn(void (*fn)(const char *, const char *, const char *, void *),
+NTSTATUS printer_list_run_fn(void (*fn)(const char *, const char *, const char *, const char *, void *),
 			     void *private_data);
 #endif /* _PRINTER_LIST_H_ */

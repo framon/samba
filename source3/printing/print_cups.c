@@ -205,6 +205,7 @@ static bool process_cups_printers_response(TALLOC_CTX *mem_ctx,
 	char *name;
 	char *info;
 	char *location = NULL;
+	char *uri = NULL;
 	struct pcap_printer *printer;
 	bool ret_ok = false;
 
@@ -258,6 +259,17 @@ static bool process_cups_printers_response(TALLOC_CTX *mem_ctx,
 				}
 			}
 
+			if (strcmp(attr->name, "device-uri") == 0 &&
+			    attr->value_tag == IPP_TAG_URI) {
+				if (!pull_utf8_talloc(mem_ctx,
+						&uri,
+						attr->values[0].string.text,
+						&size)) {
+					goto err_out;
+				}
+				DEBUG(5, ("CUPS DEVICE URI: %s\n", uri));
+			}
+
 			attr = ippNextAttribute(response);
 		}
 
@@ -282,6 +294,7 @@ static bool process_cups_printers_response(TALLOC_CTX *mem_ctx,
 		pcap_data->printers[pcap_data->count].name = name;
 		pcap_data->printers[pcap_data->count].info = info;
 		pcap_data->printers[pcap_data->count].location = location;
+		pcap_data->printers[pcap_data->count].uri = uri;
 		pcap_data->count++;
 	}
 
@@ -306,7 +319,8 @@ static bool cups_cache_reload_async(int fd)
 			{
 			  "printer-name",
 			  "printer-info",
-			  "printer-location"
+			  "printer-location",
+			  "device-uri"
 			};
 	bool ret = False;
 	enum ndr_err_code ndr_ret;
@@ -376,6 +390,7 @@ static bool cups_cache_reload_async(int fd)
 	*    attributes-charset
 	*    attributes-natural-language
 	*    requested-attributes
+	*    device-uri
 	*/
 
 	request = ippNew();
@@ -533,7 +548,8 @@ static void cups_async_callback(struct tevent_context *event_ctx,
 		ret_ok = pcap_cache_add_specific(&tmp_pcap_cache,
 						 pcap_data.printers[i].name,
 						 pcap_data.printers[i].info,
-						 pcap_data.printers[i].location);
+						 pcap_data.printers[i].location,
+						 pcap_data.printers[i].uri);
 		if (!ret_ok) {
 			DEBUG(0, ("failed to add to tmp pcap cache\n"));
 			goto err_out;

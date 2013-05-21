@@ -1415,7 +1415,8 @@ struct parm_struct *lp_get_parameter(const char *param_name);
 struct parm_struct *lp_next_parameter(int snum, int *i, int allparameters);
 bool lp_snum_ok(int iService);
 void lp_add_one_printer(const char *name, const char *comment,
-			const char *location, void *pdata);
+			const char *location, const char *uri,
+			void *pdata);
 bool lp_loaded(void);
 void lp_killunused(struct smbd_server_connection *sconn,
 		   bool (*snumused) (struct smbd_server_connection *, int));

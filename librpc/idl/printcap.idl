@@ -8,6 +8,7 @@ interface printcap
 		[charset(UTF8),string] uint8 *name;
 		[charset(UTF8),string] uint8 *info;
 		[charset(UTF8),string] uint8 *location;
+		[charset(UTF8),string] uint8 *uri;
 	} pcap_printer;
 
 	typedef [public] struct {

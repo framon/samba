@@ -139,7 +139,7 @@ static const char *builtin_registry_paths[] = {
 	KEY_GP_USER_POLICY,
 	KEY_GP_USER_WIN_POLICY,
 	"HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\GPExtensions",
-	"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Print\\Monitors",
+	"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Print\\Monitors\\Standard TCP/IP Port\\Ports",
 	KEY_PROD_OPTIONS,
 	"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\DefaultUserConfiguration",
 	KEY_TCPIP_PARAMS,
